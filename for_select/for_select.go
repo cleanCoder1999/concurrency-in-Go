@@ -1,4 +1,4 @@
-package forselect
+package for_select
 
 // ######## 1 sending iteration variables out on a channel
 //
