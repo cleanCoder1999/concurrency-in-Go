@@ -1,6 +1,9 @@
 package pipeline
 
-import "fmt"
+import (
+	"fmt"
+	"math/rand"
+)
 
 // Abstract:
 // this pipeline is similar to our pipeline utilizing functions in the previous example, but it is different in very important ways.
@@ -20,7 +23,7 @@ import "fmt"
 // takes in a variadic slice of integers, construct a buffered journal of integers with a length equal to the incoming integer slice, starts a goroutine, and returns the constructed channel
 //
 // you will see a generator function frequently when working with pipe plants because at the beginning of the pipeline, you'll always have some batch of data that you need to convert to a channel.
-func generator(done <-chan any, integers ...int) <-chan int {
+func Generator(done <-chan any, integers ...int) <-chan int {
 	intStream := make(chan int)
 
 	go func() {
@@ -38,7 +41,7 @@ func generator(done <-chan any, integers ...int) <-chan int {
 	return intStream
 }
 
-func multiplyChannel(
+func MultiplyChannel(
 	done <-chan any,
 	intStream <-chan int,
 	multiplier int,
@@ -59,7 +62,7 @@ func multiplyChannel(
 	return multipliedStream
 }
 
-func addChannel(
+func AddChannel(
 	done <-chan any,
 	intStream <-chan int,
 	additive int,
@@ -80,14 +83,14 @@ func addChannel(
 	return addedStream
 }
 
-func channelProcessingExec() {
+func ChannelProcessingExec() {
 	ints := []int{1, 2, 3, 4, 5, 6, 7, 8, 9}
 	done := make(chan any)
 
-	intStream := generator(done, ints...)
+	intStream := Generator(done, ints...)
 
 	// concurrent pipeline
-	pipeline := multiplyChannel(done, addChannel(done, multiplyChannel(done, intStream, 2), 1), 1)
+	pipeline := MultiplyChannel(done, AddChannel(done, MultiplyChannel(done, intStream, 2), 1), 1)
 
 	for v := range pipeline {
 		fmt.Println(v)
@@ -96,8 +99,8 @@ func channelProcessingExec() {
 
 // ########### some handy generators:
 
-// repeat will repeat the values you passed to it infinitely until you tell it to stop
-func repeat(
+// Repeat will Repeat the values you passed to it infinitely until you tell it to stop
+func Repeat(
 	done <-chan any,
 	values ...any,
 ) <-chan any {
@@ -120,7 +123,29 @@ func repeat(
 	return valueStream
 }
 
-func take(
+// RepeatFn will Repeat the call to function fn infinitely until you tell it to stop
+func RepeatFn(
+	done <-chan any,
+	fn func() any,
+	) <-chan any {
+	valueStream := make(chan any)
+
+	go func() {
+		defer close(valueStream)
+
+		for {
+			select {
+			case <-done: return
+			case valueStream <- fn():
+			}
+		}
+	}()
+
+	return valueStream
+}
+
+// Take reads num numbers from valueStream and writes it into a newly created channel
+func Take(
 	done <-chan any,
 	valueStream <-chan any,
 	num int,
@@ -162,12 +187,83 @@ func take(
 	return takeStream
 }
 
-// repeat and take can be very powerful together
-func channelProcessingExec2() {
+// Repeat and Take can be very powerful together
+func ChannelProcessingExec2() {
 	done := make(chan any)
 	defer close(done)
 
-	for num := range take(done, repeat(done, 1), 10) {
+	for num := range Take(done, Repeat(done, 1), 10) {
 		fmt.Println(num)
 	}
+}
+
+// RepeatFn and Take can be very powerful together
+func ChannelProcessingExec3() {
+	done := make(chan any)
+	defer close(done)
+
+	fn := func() any {
+		return rand.Int()
+	}
+
+	for num := range Take(done, RepeatFn(done, fn), 10) {
+		fmt.Println(num)
+	}
+}
+
+// ToString converts the values sent via valueStream to a string
+func ToString(
+	done <-chan any,
+	valueStream <-chan any,
+) <-chan string {
+	stringStream := make(chan string)
+
+	go func() {
+		defer close(stringStream)
+
+		for v := range valueStream {
+			select {
+			case <-done:
+				return
+			case stringStream <- v.(string):
+			}
+		}
+	}()
+
+	return stringStream
+}
+
+// ToInt converts the values sent via valueStream to int
+func ToInt(
+	done <-chan any,
+	valueStream <-chan any,
+) <-chan int {
+	stringStream := make(chan int)
+
+	go func() {
+		defer close(stringStream)
+
+		for v := range valueStream {
+			select {
+			case <-done:
+				return
+			case stringStream <- v.(int):
+			}
+		}
+	}()
+
+	return stringStream
+}
+
+// RepeatFn and Take can be very powerful together
+func ChannelProcessingExec4() {
+	done := make(chan any)
+	defer close(done)
+
+	var msg string
+	for token := range ToString(done, Take(done, Repeat(done, "I", "am."), 5)) {
+		msg += token
+	}
+
+	fmt.Println("message: ", msg)
 }
